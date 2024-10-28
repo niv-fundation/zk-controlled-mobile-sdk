@@ -2,9 +2,15 @@ module github.com/niv-fundation/zk-controlled-mobile-sdk
 
 go 1.23.2
 
+replace github.com/iden3/wasmer-go => /Users/kyrylr/Desktop/iden3/wasmer-go
+
 require (
 	github.com/ethereum/go-ethereum v1.14.11
 	github.com/iden3/go-iden3-crypto v0.0.17
+	github.com/iden3/go-rapidsnark/prover v0.0.12
+	github.com/iden3/go-rapidsnark/types v0.0.3
+	github.com/iden3/go-rapidsnark/verifier v0.0.5
+	github.com/iden3/go-rapidsnark/witness v0.0.6
 	github.com/pkg/errors v0.9.1
 )
 
@@ -26,6 +32,7 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/holiman/uint256 v1.3.1 // indirect
+	github.com/iden3/wasmer-go v0.0.1 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/supranational/blst v0.3.13 // indirect
