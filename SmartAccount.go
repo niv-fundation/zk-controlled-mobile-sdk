@@ -29,19 +29,6 @@ var (
 	_ = abi.ConvertType
 )
 
-// PackedUserOperation is an auto generated low-level Go binding around an user-defined struct.
-type PackedUserOperation struct {
-	Sender             common.Address
-	Nonce              *big.Int
-	InitCode           []byte
-	CallData           []byte
-	AccountGasLimits   [32]byte
-	PreVerificationGas *big.Int
-	GasFees            [32]byte
-	PaymasterAndData   []byte
-	Signature          []byte
-}
-
 // SmartAccountIdentityProof is an auto generated low-level Go binding around an user-defined struct.
 type SmartAccountIdentityProof struct {
 	IdentityProof VerifierHelperProofPoints

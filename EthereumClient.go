@@ -103,6 +103,86 @@ func (c *EthereumClient) GetContractBalance(addressStr string) (string, error) {
 	return formattedBalance, nil
 }
 
+func (c *EthereumClient) GetSendETHInputs(privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointSrt string) (string, error) {
+	client, err := ethclient.Dial(c.RPC)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to RPC: %v", err)
+	}
+	defer client.Close()
+
+	userOp, err := BuildSendETHUserOperation(client, privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr)
+
+	userOpHash, err := GetUserOpHash(client, entryPointSrt, userOp)
+	if err != nil {
+		return "", fmt.Errorf("error getting user op hash: %v", err)
+	}
+
+	userOpHashInt := new(big.Int).SetBytes(userOpHash[:])
+
+	R8, S, err := SignRawPoseidon(privateKey, userOpHashInt.String())
+	if err != nil {
+		return "", fmt.Errorf("error signing user operation: %v", err)
+	}
+
+	inputs := AuthProofInput{
+		SkI:          MustParseBigInt(privateKey),
+		EventID:      MustParseBigInt(eventID),
+		MessageHash:  userOpHashInt,
+		SignatureR8x: R8.X,
+		SignatureR8y: R8.Y,
+		SignatureS:   S,
+	}
+
+	if err := inputs.Validate(); err != nil {
+		return "", fmt.Errorf("error validating inputs: %v", err)
+	}
+
+	jsonData, err := json.Marshal(inputs)
+	if err != nil {
+		return "", fmt.Errorf("error marshalling inputs to JSON: %v", err)
+	}
+
+	return string(jsonData), nil
+}
+
+func (c *EthereumClient) SendETH(privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointStr, proof string) (string, error) {
+	client, err := ethclient.Dial(c.RPC)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to RPC: %v", err)
+	}
+	defer client.Close()
+
+	userOp, err := BuildSendETHUserOperation(client, privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr)
+
+	proofStruct := &Proof{}
+	err = proofStruct.FromJSON(proof)
+	if err != nil {
+		return "", fmt.Errorf("error parsing proof: %v", err)
+	}
+
+	proofPoints, err := proofStruct.ToVerifierHelperProofPoints()
+	if err != nil {
+		return "", fmt.Errorf("error converting proof to verifier helper proof points: %v", err)
+	}
+
+	userOp.Signature, err = EncodeIdentityProof(proofPoints)
+	if err != nil {
+		return "", fmt.Errorf("error encoding identity proof: %v", err)
+	}
+
+	entryPoint, err := NewEntryPoint(common.HexToAddress(entryPointStr), client)
+	if err != nil {
+		return "", fmt.Errorf("error creating entry point: %v", err)
+	}
+
+	tx, err := entryPoint.HandleOps(&bind.TransactOpts{}, ToPackedUserOperationArray(userOp), userOp.Sender)
+	if err != nil {
+		return "", fmt.Errorf("error sending transaction: %v", err)
+	}
+
+	return tx.Hash().Hex(), nil
+}
+
 func (c *EthereumClient) GetPredictedAccountAddress(privateKey, eventID, factoryAddressStr string) (string, error) {
 	nullifier, err := CalculateEventNullifierHex(privateKey, eventID)
 	if err != nil {
@@ -125,6 +205,35 @@ func (c *EthereumClient) GetPredictedAccountAddress(privateKey, eventID, factory
 	nullifierBytes := common.HexToHash(nullifier)
 
 	address, err := factoryCaller.PredictSmartAccountAddress(&bind.CallOpts{}, nullifierBytes)
+	if err != nil {
+		return "", fmt.Errorf("error predicting smart account address: %v", err)
+	}
+
+	return address.Hex(), nil
+}
+
+func (c *EthereumClient) GetAccountDeployed(privateKey, eventID, factoryAddressStr string) (string, error) {
+	nullifier, err := CalculateEventNullifierHex(privateKey, eventID)
+	if err != nil {
+		return "", fmt.Errorf("error calculating event nullifier: %v", err)
+	}
+
+	client, err := ethclient.Dial(c.RPC)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to RPC: %v", err)
+	}
+	defer client.Close()
+
+	factoryAddress := common.HexToAddress(factoryAddressStr)
+
+	factoryCaller, err := NewSmartAccountFactoryCaller(factoryAddress, client)
+	if err != nil {
+		return "", fmt.Errorf("error creating factory caller: %v", err)
+	}
+
+	nullifierBytes := common.HexToHash(nullifier)
+
+	address, err := factoryCaller.GetSmartAccount(&bind.CallOpts{}, nullifierBytes)
 	if err != nil {
 		return "", fmt.Errorf("error predicting smart account address: %v", err)
 	}
@@ -189,4 +298,13 @@ func ParseBigInt(input string) (*big.Int, error) {
 	}
 
 	return nil, errors.New("could not parse string as big.Int in decimal or hexadecimal")
+}
+
+func MustParseBigInt(input string) *big.Int {
+	secretKey, err := ParseBigInt(input)
+	if err != nil {
+		panic(err)
+	}
+
+	return secretKey
 }
