@@ -2,8 +2,10 @@ package zk_controlled_mobile_sdk
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"strings"
 
 	"encoding/hex"
@@ -28,6 +30,27 @@ type EthereumClient struct {
 
 func (c *EthereumClient) NewEthereumClient(rpc string) *EthereumClient {
 	return &EthereumClient{rpc}
+}
+
+func (c *EthereumClient) GetEthAddress(privateKeyStr, chainId string) (string, error) {
+	client, err := ethclient.Dial(c.RPC)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to RPC: %v", err)
+	}
+	defer client.Close()
+
+	var privateKey *ecdsa.PrivateKey
+	privateKey, err = crypto.ToECDSA(crypto.Keccak256([]byte(privateKeyStr)))
+	if err != nil {
+		return "", fmt.Errorf("error parsing private key: %v", err)
+	}
+
+	signerOpts, err := bind.NewKeyedTransactorWithChainID(privateKey, MustParseBigInt(chainId))
+	if err != nil {
+		return "", fmt.Errorf("failed to get keyed transactor: %w", err)
+	}
+
+	return signerOpts.From.Hex(), nil
 }
 
 func (c *EthereumClient) GetTransactionHistory(contractAddressStr, offset, limit string) (string, error) {
@@ -103,14 +126,14 @@ func (c *EthereumClient) GetContractBalance(addressStr string) (string, error) {
 	return formattedBalance, nil
 }
 
-func (c *EthereumClient) GetSendETHInputs(privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointSrt string) (string, error) {
+func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointSrt string) (string, error) {
 	client, err := ethclient.Dial(c.RPC)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to RPC: %v", err)
 	}
 	defer client.Close()
 
-	userOp, err := BuildSendETHUserOperation(client, privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr)
+	userOp, err := BuildSendETHUserOperation(client, privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr)
 
 	userOpHash, err := GetUserOpHash(client, entryPointSrt, userOp)
 	if err != nil {
@@ -119,13 +142,13 @@ func (c *EthereumClient) GetSendETHInputs(privateKey, eventID, receiver, amount,
 
 	userOpHashInt := new(big.Int).SetBytes(userOpHash[:])
 
-	R8, S, err := SignRawPoseidon(privateKey, userOpHashInt.String())
+	R8, S, err := SignRawPoseidon(privateKeyStr, userOpHashInt.String())
 	if err != nil {
 		return "", fmt.Errorf("error signing user operation: %v", err)
 	}
 
 	inputs := AuthProofInput{
-		SkI:          MustParseBigInt(privateKey),
+		SkI:          MustParseBigInt(privateKeyStr),
 		EventID:      MustParseBigInt(eventID),
 		MessageHash:  userOpHashInt,
 		SignatureR8x: R8.X,
@@ -145,14 +168,14 @@ func (c *EthereumClient) GetSendETHInputs(privateKey, eventID, receiver, amount,
 	return string(jsonData), nil
 }
 
-func (c *EthereumClient) SendETH(privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointStr, proof string) (string, error) {
+func (c *EthereumClient) SendETH(privateKeyStr, chainId, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointStr, proof string) (string, error) {
 	client, err := ethclient.Dial(c.RPC)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to RPC: %v", err)
 	}
 	defer client.Close()
 
-	userOp, err := BuildSendETHUserOperation(client, privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr)
+	userOp, err := BuildSendETHUserOperation(client, privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr)
 
 	proofStruct := &Proof{}
 	err = proofStruct.FromJSON(proof)
@@ -175,7 +198,18 @@ func (c *EthereumClient) SendETH(privateKey, eventID, receiver, amount, accountA
 		return "", fmt.Errorf("error creating entry point: %v", err)
 	}
 
-	tx, err := entryPoint.HandleOps(&bind.TransactOpts{}, ToPackedUserOperationArray(userOp), userOp.Sender)
+	var privateKey *ecdsa.PrivateKey
+	privateKey, err = crypto.ToECDSA(crypto.Keccak256([]byte(privateKeyStr)))
+	if err != nil {
+		return "", fmt.Errorf("error parsing private key: %v", err)
+	}
+
+	signerOpts, err := bind.NewKeyedTransactorWithChainID(privateKey, MustParseBigInt(chainId))
+	if err != nil {
+		return "", fmt.Errorf("failed to get keyed transactor: %w", err)
+	}
+
+	tx, err := entryPoint.HandleOps(signerOpts, ToPackedUserOperationArray(userOp), userOp.Sender)
 	if err != nil {
 		return "", fmt.Errorf("error sending transaction: %v", err)
 	}

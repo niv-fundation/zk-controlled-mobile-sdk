@@ -2,8 +2,6 @@ package zk_controlled_mobile_sdk
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
@@ -26,28 +24,16 @@ type ZkProof struct {
 func (p *Proof) ToVerifierHelperProofPoints() (*VerifierHelperProofPoints, error) {
 	var vhp VerifierHelperProofPoints
 
-	if len(p.PiA) != 2 {
-		return nil, errors.New("pi_a must have exactly 2 elements")
-	}
 	for i := 0; i < 2; i++ {
 		vhp.A[i] = MustParseBigInt(p.PiA[i])
 	}
 
-	if len(p.PiB) != 2 {
-		return nil, errors.New("pi_b must have exactly 2 elements")
-	}
 	for i := 0; i < 2; i++ {
-		if len(p.PiB[i]) != 2 {
-			return nil, fmt.Errorf("pi_b[%d] must have exactly 2 elements", i)
-		}
 		for j := 0; j < 2; j++ {
 			vhp.B[i][j] = MustParseBigInt(p.PiB[i][j])
 		}
 	}
 
-	if len(p.PiC) != 2 {
-		return nil, errors.New("pi_c must have exactly 2 elements")
-	}
 	for i := 0; i < 2; i++ {
 		vhp.C[i] = MustParseBigInt(p.PiC[i])
 	}
