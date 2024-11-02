@@ -93,18 +93,13 @@ func ComputeGasFees(maxPriorityFeePerGas, maxFeePerGas *big.Int) (*big.Int, erro
 
 // GetEmptyPackedUserOperation returns an empty packed user operation.
 func GetEmptyPackedUserOperation() (*UserOperation, error) {
-	verificationGasLimit := big.NewInt(2777216)
-	callGasLimit := big.NewInt(2777216)
-	maxPriorityFeePerGas := big.NewInt(256)
-	maxFeePerGas := big.NewInt(256)
-
-	accountGasLimitsInt, err := ComputeAccountGasLimits(verificationGasLimit, callGasLimit)
+	accountGasLimitsInt, err := ComputeAccountGasLimits(VerificationGasLimit, CallGasLimit)
 	if err != nil {
 		return nil, err
 	}
 	accountGasLimitsHex := ToBeHex(accountGasLimitsInt, 32)
 
-	gasFeesInt, err := ComputeGasFees(maxPriorityFeePerGas, maxFeePerGas)
+	gasFeesInt, err := ComputeGasFees(MaxPriorityFeePerGas, MaxFeePerGas)
 	if err != nil {
 		return nil, err
 	}
@@ -116,11 +111,15 @@ func GetEmptyPackedUserOperation() (*UserOperation, error) {
 		InitCode:           []byte{},
 		CallData:           []byte{},
 		AccountGasLimits:   accountGasLimitsHex,
-		PreVerificationGas: verificationGasLimit,
+		PreVerificationGas: VerificationGasLimit,
 		GasFees:            gasFeesHex,
 		PaymasterAndData:   []byte{},
 		Signature:          []byte{},
 	}, nil
+}
+
+func GetPaymasterAndData(paymaster string) string {
+	return ToBeHex(MustParseBigInt(paymaster), 20) + "0000000000000000000000000001000000000000000000000000000000001000"
 }
 
 // GetDefaultPackedUserOperation returns a default packed user operation for a given account.
@@ -141,6 +140,8 @@ func GetDefaultPackedUserOperation(account *Account) (*UserOperation, error) {
 		return nil, err
 	}
 	emptyUserOp.Nonce = nonce
+
+	emptyUserOp.PaymasterAndData = hexutil.MustDecode(GetPaymasterAndData(hexutil.Encode(account.Paymaster.Bytes())))
 
 	return emptyUserOp, nil
 }
@@ -193,7 +194,7 @@ func GetInitCode(client *ethclient.Client, factoryAddressStr, nullifier string) 
 	return initCode, predictedAddress, nil
 }
 
-func BuildSendETHUserOperation(client *ethclient.Client, privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr string) (*UserOperation, error) {
+func BuildSendETHUserOperation(client *ethclient.Client, privateKey, eventID, receiver, amount, accountAddress, factoryAddressStr, paymasterAddress string) (*UserOperation, error) {
 	nullifier, err := CalculateEventNullifierHex(privateKey, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("error calculating event nullifier: %v", err)
@@ -210,8 +211,9 @@ func BuildSendETHUserOperation(client *ethclient.Client, privateKey, eventID, re
 
 		userOp.Sender = predictedAddress
 		userOp.InitCode = initCode
+		userOp.PaymasterAndData = hexutil.MustDecode(GetPaymasterAndData(paymasterAddress))
 	} else {
-		account := NewAccount(common.HexToAddress(accountAddress), client)
+		account := NewAccount(common.HexToAddress(accountAddress), common.HexToAddress(paymasterAddress), client)
 		userOp, err = GetDefaultPackedUserOperation(account)
 	}
 

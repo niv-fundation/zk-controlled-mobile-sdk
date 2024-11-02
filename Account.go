@@ -10,11 +10,12 @@ import (
 // Account represents the smart account.
 type Account struct {
 	Address         common.Address
+	Paymaster       common.Address
 	AccountInstance *SmartAccount
 	Client          *ethclient.Client
 }
 
-func NewAccount(address common.Address, client *ethclient.Client) *Account {
+func NewAccount(address, paymaster common.Address, client *ethclient.Client) *Account {
 	contractInstance, err := NewSmartAccount(address, client)
 	if err != nil {
 		panic(err)
@@ -22,6 +23,7 @@ func NewAccount(address common.Address, client *ethclient.Client) *Account {
 
 	return &Account{
 		Address:         address,
+		Paymaster:       paymaster,
 		Client:          client,
 		AccountInstance: contractInstance,
 	}
