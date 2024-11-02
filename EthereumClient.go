@@ -188,6 +188,9 @@ func (c *EthereumClient) SendETH(privateKeyStr, chainId, eventID, receiver, amou
 		return "", fmt.Errorf("error converting proof to verifier helper proof points: %v", err)
 	}
 
+	proofPoints.B[0][0], proofPoints.B[0][1] = proofPoints.B[0][1], proofPoints.B[0][0]
+	proofPoints.B[1][0], proofPoints.B[1][1] = proofPoints.B[1][1], proofPoints.B[1][0]
+
 	userOp.Signature, err = EncodeIdentityProof(proofPoints)
 	if err != nil {
 		return "", fmt.Errorf("error encoding identity proof: %v", err)
