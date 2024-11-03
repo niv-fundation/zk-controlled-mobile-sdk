@@ -10,6 +10,8 @@ import (
 )
 
 func SendUOToBundler(userOp *UserOperationJson, paymasterAddressStr, entryPointStr string) (string, error) {
+	fmt.Println("Sending user operation to bundler:", userOp)
+
 	userOperation, err := ConstructUserOperationRequest(userOp, paymasterAddressStr)
 	if err != nil {
 		return "", fmt.Errorf("error constructing user operation: %v", err)

@@ -26,7 +26,7 @@ type UserOperationJson struct {
 	PreVerificationGas string `json:"preVerificationGas"`
 	GasFees            string `json:"gasFees"`
 	PaymasterAndData   string `json:"paymasterAndData"`
-	Signature          string `json:"signature"`
+	Signature          string `json:"signature,omitempty"`
 }
 
 type UserOperationReq struct {

@@ -2,12 +2,12 @@ package zk_controlled_mobile_sdk
 
 import (
 	"fmt"
-	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 	"math/big"
 
 	"github.com/iden3/go-iden3-crypto/babyjub"
 	"github.com/iden3/go-iden3-crypto/constants"
 	"github.com/iden3/go-iden3-crypto/poseidon"
+	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 )
 
 func SignRawPoseidon(privateKey, hash string) (*babyjub.Point, *big.Int, error) {

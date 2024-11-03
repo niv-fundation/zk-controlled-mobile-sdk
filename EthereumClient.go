@@ -199,9 +199,12 @@ func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, userOpStr, ent
 		return "", fmt.Errorf("error unmarshalling user operation: %v", err)
 	}
 
-	fmt.Println("1 ------ userOp: ", userOp)
+	chainId, err := GetChainID(client)
+	if err != nil {
+		return "", fmt.Errorf("error getting chain ID: %v", err)
+	}
 
-	userOpHash, err := uo.GetUserOpHash(client, entryPointSrt, userOp)
+	userOpHash, err := uo.GetUserOpHashLocal(userOp, common.HexToAddress(entryPointSrt), chainId)
 	if err != nil {
 		return "", fmt.Errorf("error getting user op hash: %v", err)
 	}
@@ -250,6 +253,15 @@ func GetBaseFee(client *ethclient.Client) (*big.Int, error) {
 	return baseFee, nil
 }
 
+func GetChainID(client *ethclient.Client) (*big.Int, error) {
+	chainID, err := client.ChainID(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("error getting chain ID: %v", err)
+	}
+
+	return chainID, nil
+}
+
 func (c *EthereumClient) SendETH(userOpStr, entryPointStr, paymasterAddressStr, proof string) (string, error) {
 	client, err := ethclient.Dial(c.RPC)
 	if err != nil {
@@ -280,6 +292,18 @@ func (c *EthereumClient) SendETH(userOpStr, entryPointStr, paymasterAddressStr, 
 	if err != nil {
 		return "", fmt.Errorf("error encoding identity proof: %v", err)
 	}
+
+	chainId, err := GetChainID(client)
+	if err != nil {
+		return "", fmt.Errorf("error getting chain ID: %v", err)
+	}
+
+	preSendHash, err := uo.GetUserOpHashLocal(userOp, common.HexToAddress(entryPointStr), chainId)
+	if err != nil {
+		return "", fmt.Errorf("error getting user op hash: %v", err)
+	}
+
+	fmt.Println("preSendHash: ", hexutil.Encode(preSendHash))
 
 	result, err := uo.SendUOToBundler(userOp, paymasterAddressStr, entryPointStr)
 	if err != nil {

@@ -42,7 +42,10 @@ func (uo UserOperation) MarshalJSON() ([]byte, error) {
 	userOperationJson.PreVerificationGas = hexutil.Encode(uo.PreVerificationGas.Bytes())
 	userOperationJson.GasFees = uo.GasFees
 	userOperationJson.PaymasterAndData = hexutil.Encode(uo.PaymasterAndData)
-	userOperationJson.Signature = hexutil.Encode(uo.Signature)
+
+	if len(uo.Signature) != 0 {
+		userOperationJson.Signature = hexutil.Encode(uo.Signature)
+	}
 
 	return json.Marshal(userOperationJson)
 }
@@ -80,7 +83,10 @@ func UnmarshalUserOperationToRaw(dataStr string) (*UserOperation, error) {
 	gasFees := userOperationJson.GasFees
 	paymasterAndData := hexutil.MustDecode(userOperationJson.PaymasterAndData)
 
-	signature := hexutil.MustDecode(userOperationJson.Signature)
+	var signature []byte
+	if len(userOperationJson.Signature) != 0 {
+		signature = hexutil.MustDecode(userOperationJson.Signature)
+	}
 
 	return &UserOperation{
 		Sender:             common.BytesToAddress(sender),
@@ -97,7 +103,7 @@ func UnmarshalUserOperationToRaw(dataStr string) (*UserOperation, error) {
 
 func ToPackedUserOperation(userOp *UserOperationJson) bindings.PackedUserOperation {
 	accountGasLimits := hexutil.MustDecode(userOp.AccountGasLimits)
-	gasFees := hexutil.MustDecode(userOp.GasFees)
+	gasFees := ToBeHex(MustParseBigInt(userOp.GasFees), 32)
 
 	var accountGasLimitsBytes [32]byte
 	copy(accountGasLimitsBytes[:], accountGasLimits)
@@ -114,8 +120,19 @@ func ToPackedUserOperation(userOp *UserOperationJson) bindings.PackedUserOperati
 		PreVerificationGas: MustParseBigInt(userOp.PreVerificationGas),
 		GasFees:            gasFeesBytes,
 		PaymasterAndData:   hexutil.MustDecode(userOp.PaymasterAndData),
-		Signature:          hexutil.MustDecode(userOp.Signature),
+		Signature:          []byte{},
 	}
+}
+
+func PrintPackedUserOperation(packedUserOp bindings.PackedUserOperation) {
+	fmt.Println("Sender:", hexutil.Encode(packedUserOp.Sender.Bytes()))
+	fmt.Println("Nonce:", packedUserOp.Nonce)
+	fmt.Println("InitCode:", hexutil.Encode(packedUserOp.InitCode))
+	fmt.Println("CallData:", hexutil.Encode(packedUserOp.CallData))
+	fmt.Println("AccountGasLimits:", hexutil.Encode(packedUserOp.AccountGasLimits[:]))
+	fmt.Println("PreVerificationGas:", packedUserOp.PreVerificationGas)
+	fmt.Println("GasFees:", hexutil.Encode(packedUserOp.GasFees[:]))
+	fmt.Println("PaymasterAndData:", hexutil.Encode(packedUserOp.PaymasterAndData))
 }
 
 // ComputeAccountGasLimits computes the account gas limits.
@@ -206,24 +223,6 @@ func GetDefaultPackedUserOperation(account *Account) (*UserOperation, error) {
 	emptyUserOp.PaymasterAndData = hexutil.MustDecode(GetPaymasterAndData(hexutil.Encode(account.Paymaster.Bytes())))
 
 	return emptyUserOp, nil
-}
-
-func GetUserOpHash(client *ethclient.Client, entryPointAddressStr string, userOp *UserOperationJson) (common.Hash, error) {
-	entryPointAddress := common.HexToAddress(entryPointAddressStr)
-
-	entryPointCaller, err := bindings.NewEntryPointCaller(entryPointAddress, client)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("error creating entry point caller: %v", err)
-	}
-
-	packedUserOp := ToPackedUserOperation(userOp)
-
-	hash, err := entryPointCaller.GetUserOpHash(&bind.CallOpts{}, packedUserOp)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("error getting user op hash: %v", err)
-	}
-
-	return hash, nil
 }
 
 func GetInitCode(client *ethclient.Client, factoryAddressStr, nullifier string) ([]byte, common.Address, error) {

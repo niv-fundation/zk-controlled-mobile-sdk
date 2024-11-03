@@ -3,8 +3,9 @@ package zkp
 import (
 	"encoding/json"
 	"errors"
-	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 	"math/big"
+
+	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 )
 
 type AuthProofInput struct {

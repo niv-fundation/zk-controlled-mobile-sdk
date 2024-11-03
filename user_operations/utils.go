@@ -3,6 +3,10 @@ package user_operations
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/iden3/go-iden3-crypto/keccak256"
 	"math/big"
 	"strings"
 
@@ -97,4 +101,88 @@ func MustParseBigInt(input string) *big.Int {
 	}
 
 	return secretKey
+}
+
+func calldataKeccak(data string) string {
+	return hexutil.Encode(keccak256.Hash(hexutil.MustDecode(data)))
+}
+
+func encode(userOp *UserOperationJson) ([]byte, error) {
+	nonce := userOp.Nonce
+	hashInitCode := calldataKeccak(userOp.InitCode)
+	hashCallData := calldataKeccak(userOp.CallData)
+	accountGasLimits := userOp.AccountGasLimits
+	preVerificationGas := userOp.PreVerificationGas
+	gasFees := userOp.GasFees
+	hashPaymasterAndData := calldataKeccak(userOp.PaymasterAndData)
+
+	// Define ABI types
+	senderType, _ := abi.NewType("address", "", nil)
+	uint256Type, _ := abi.NewType("uint256", "", nil)
+	bytes32Type, _ := abi.NewType("bytes32", "", nil)
+
+	// Prepare arguments for ABI encoding
+	arguments := abi.Arguments{
+		{Name: "sender", Type: senderType},
+		{Name: "nonce", Type: uint256Type},
+		{Name: "hashInitCode", Type: bytes32Type},
+		{Name: "hashCallData", Type: bytes32Type},
+		{Name: "accountGasLimits", Type: uint256Type},
+		{Name: "preVerificationGas", Type: uint256Type},
+		{Name: "gasFees", Type: uint256Type},
+		{Name: "hashPaymasterAndData", Type: bytes32Type},
+	}
+
+	// ABI-encode the data
+	packedData, err := arguments.Pack(
+		common.HexToAddress(userOp.Sender),
+		MustParseBigInt(nonce),
+		common.HexToHash(hashInitCode),
+		common.HexToHash(hashCallData),
+		MustParseBigInt(accountGasLimits),
+		MustParseBigInt(preVerificationGas),
+		MustParseBigInt(gasFees),
+		common.HexToHash(hashPaymasterAndData),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return packedData, nil
+}
+
+func Hash(userOp *UserOperationJson) ([]byte, error) {
+	encoded, err := encode(userOp)
+	if err != nil {
+		return nil, err
+	}
+	h := keccak256.Hash(encoded)
+	return h[:], nil
+}
+
+func GetUserOpHashLocal(userOp *UserOperationJson, contractAddress common.Address, chainID *big.Int) ([]byte, error) {
+	userOpHash, err := Hash(userOp)
+	if err != nil {
+		return nil, err
+	}
+	addressType, _ := abi.NewType("address", "", nil)
+	uint256Type, _ := abi.NewType("uint256", "", nil)
+	bytes32Type, _ := abi.NewType("bytes32", "", nil)
+
+	arguments := abi.Arguments{
+		{Name: "userOpHash", Type: bytes32Type},
+		{Name: "contractAddress", Type: addressType},
+		{Name: "chainID", Type: uint256Type},
+	}
+
+	// ABI-encode the data
+	packedData, err := arguments.Pack(
+		common.BytesToHash(userOpHash),
+		contractAddress,
+		chainID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	h := keccak256.Hash(packedData)
+	return h[:], nil
 }
