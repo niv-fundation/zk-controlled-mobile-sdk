@@ -29,17 +29,17 @@ func (p *Proof) ToVerifierHelperProofPoints() (*bindings.VerifierHelperProofPoin
 	var vhp bindings.VerifierHelperProofPoints
 
 	for i := 0; i < 2; i++ {
-		vhp.A[i] = uo.MustParseBigInt(p.PiA[i])
+		vhp.A[i] = uo.MustParseBigInt(p.PiA[i], "p.PiA[i] in ToVerifierHelperProofPoints")
 	}
 
 	for i := 0; i < 2; i++ {
 		for j := 0; j < 2; j++ {
-			vhp.B[i][j] = uo.MustParseBigInt(p.PiB[i][j])
+			vhp.B[i][j] = uo.MustParseBigInt(p.PiB[i][j], "p.PiB[i][j] in ToVerifierHelperProofPoints")
 		}
 	}
 
 	for i := 0; i < 2; i++ {
-		vhp.C[i] = uo.MustParseBigInt(p.PiC[i])
+		vhp.C[i] = uo.MustParseBigInt(p.PiC[i], "p.PiC[i] in ToVerifierHelperProofPoints")
 	}
 
 	return &vhp, nil

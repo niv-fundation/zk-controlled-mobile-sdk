@@ -47,6 +47,10 @@ func (uo UserOperation) MarshalJSON() ([]byte, error) {
 		userOperationJson.Signature = hexutil.Encode(uo.Signature)
 	}
 
+	if uo.Nonce.Int64() == 0 {
+		userOperationJson.Nonce = "0x0"
+	}
+
 	return json.Marshal(userOperationJson)
 }
 
@@ -59,80 +63,6 @@ func UnmarshalUserOperation(dataStr string) (*UserOperationJson, error) {
 	}
 
 	return &userOperationJson, nil
-}
-
-func UnmarshalUserOperationToRaw(dataStr string) (*UserOperation, error) {
-	var userOperationJson UserOperationJson
-
-	err := json.Unmarshal([]byte(dataStr), &userOperationJson)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Println(userOperationJson)
-
-	sender := hexutil.MustDecode(userOperationJson.Sender)
-	nonce := MustParseBigInt(userOperationJson.Nonce)
-
-	initCode := hexutil.MustDecode(userOperationJson.InitCode)
-	callData := hexutil.MustDecode(userOperationJson.CallData)
-
-	accountGasLimits := userOperationJson.AccountGasLimits
-	preVerificationGas := MustParseBigInt(userOperationJson.PreVerificationGas)
-
-	gasFees := userOperationJson.GasFees
-	paymasterAndData := hexutil.MustDecode(userOperationJson.PaymasterAndData)
-
-	var signature []byte
-	if len(userOperationJson.Signature) != 0 {
-		signature = hexutil.MustDecode(userOperationJson.Signature)
-	}
-
-	return &UserOperation{
-		Sender:             common.BytesToAddress(sender),
-		Nonce:              nonce,
-		InitCode:           initCode,
-		CallData:           callData,
-		AccountGasLimits:   accountGasLimits,
-		PreVerificationGas: preVerificationGas,
-		GasFees:            gasFees,
-		PaymasterAndData:   paymasterAndData,
-		Signature:          signature,
-	}, nil
-}
-
-func ToPackedUserOperation(userOp *UserOperationJson) bindings.PackedUserOperation {
-	accountGasLimits := hexutil.MustDecode(userOp.AccountGasLimits)
-	gasFees := ToBeHex(MustParseBigInt(userOp.GasFees), 32)
-
-	var accountGasLimitsBytes [32]byte
-	copy(accountGasLimitsBytes[:], accountGasLimits)
-
-	var gasFeesBytes [32]byte
-	copy(gasFeesBytes[:], gasFees)
-
-	return bindings.PackedUserOperation{
-		Sender:             common.BytesToAddress(hexutil.MustDecode(userOp.Sender)),
-		Nonce:              MustParseBigInt(userOp.Nonce),
-		InitCode:           hexutil.MustDecode(userOp.InitCode),
-		CallData:           hexutil.MustDecode(userOp.CallData),
-		AccountGasLimits:   accountGasLimitsBytes,
-		PreVerificationGas: MustParseBigInt(userOp.PreVerificationGas),
-		GasFees:            gasFeesBytes,
-		PaymasterAndData:   hexutil.MustDecode(userOp.PaymasterAndData),
-		Signature:          []byte{},
-	}
-}
-
-func PrintPackedUserOperation(packedUserOp bindings.PackedUserOperation) {
-	fmt.Println("Sender:", hexutil.Encode(packedUserOp.Sender.Bytes()))
-	fmt.Println("Nonce:", packedUserOp.Nonce)
-	fmt.Println("InitCode:", hexutil.Encode(packedUserOp.InitCode))
-	fmt.Println("CallData:", hexutil.Encode(packedUserOp.CallData))
-	fmt.Println("AccountGasLimits:", hexutil.Encode(packedUserOp.AccountGasLimits[:]))
-	fmt.Println("PreVerificationGas:", packedUserOp.PreVerificationGas)
-	fmt.Println("GasFees:", hexutil.Encode(packedUserOp.GasFees[:]))
-	fmt.Println("PaymasterAndData:", hexutil.Encode(packedUserOp.PaymasterAndData))
 }
 
 // ComputeAccountGasLimits computes the account gas limits.
@@ -160,9 +90,9 @@ func ComputeGasFees(maxPriorityFeePerGas, maxFeePerGas *big.Int) (*big.Int, erro
 }
 
 func DecomputeGasFees(gasFeesStr string) (*big.Int, *big.Int, error) {
-	var gasFeesInt = MustParseBigInt(gasFeesStr)
+	var gasFeesInt = MustParseBigInt(gasFeesStr, "gasFees in DecomputeGasFees")
 
-	mask := MustParseBigInt("0xffffffffffffffffffffffffffffffff")
+	mask := MustParseBigInt("0xffffffffffffffffffffffffffffffff", "mask in DecomputeGasFees")
 
 	maxPriorityFeePerGas := new(big.Int).Rsh(gasFeesInt, 128)
 	maxFeePerGas := new(big.Int).And(gasFeesInt, mask)
@@ -178,7 +108,7 @@ func GetEmptyPackedUserOperation() (*UserOperation, error) {
 	}
 	accountGasLimitsHex := ToBeHex(accountGasLimitsInt, 32)
 
-	gasFeesInt, err := ComputeGasFees(MaxPriorityFeePerGas, MustParseBigInt("0"))
+	gasFeesInt, err := ComputeGasFees(MaxPriorityFeePerGas, MustParseBigInt("0", "0 in GetEmptyPackedUserOperation"))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +128,7 @@ func GetEmptyPackedUserOperation() (*UserOperation, error) {
 }
 
 func GetPaymasterAndData(paymaster string) string {
-	return ToBeHex(MustParseBigInt(paymaster), 20) + "0000000000000000000000000001000000000000000000000000000000001000"
+	return ToBeHex(MustParseBigInt(paymaster, "paymaster in GetPaymasterAndData"), 20) + "0000000000000000000000000001000000000000000000000000000000001000"
 }
 
 // GetDefaultPackedUserOperation returns a default packed user operation for a given account.
@@ -270,6 +200,7 @@ func BuildSendETHUserOperation(client *ethclient.Client, privateKey, eventID, re
 			return nil, fmt.Errorf("error getting init code: %v", err)
 		}
 
+		userOp.Nonce = big.NewInt(0)
 		userOp.Sender = predictedAddress
 		userOp.InitCode = initCode
 		userOp.PaymasterAndData = hexutil.MustDecode(GetPaymasterAndData(paymasterAddress))

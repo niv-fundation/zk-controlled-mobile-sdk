@@ -1,6 +1,7 @@
 package zk_controlled_mobile_sdk
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/niv-fundation/zk-controlled-mobile-sdk/bindings"
+	"io"
+	"net/http"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -46,7 +49,7 @@ func (c *EthereumClient) GetEthAddress(privateKeyStr, chainId string) (string, e
 		return "", fmt.Errorf("error parsing private key: %v", err)
 	}
 
-	signerOpts, err := bind.NewKeyedTransactorWithChainID(privateKey, uo.MustParseBigInt(chainId))
+	signerOpts, err := bind.NewKeyedTransactorWithChainID(privateKey, uo.MustParseBigInt(chainId, "chainId in GetEthAddress"))
 	if err != nil {
 		return "", fmt.Errorf("failed to get keyed transactor: %w", err)
 	}
@@ -179,6 +182,10 @@ func (c *EthereumClient) GetUO(privateKeyStr, eventID, receiver, amount, account
 
 	userOp.GasFees = hexutil.Encode(gasFeesStr.Bytes())
 
+	if userOp.Nonce == nil {
+		userOp.Nonce = big.NewInt(0)
+	}
+
 	marshaledUo, err := userOp.MarshalJSON()
 	if err != nil {
 		return "", fmt.Errorf("error marshalling user operation to JSON: %v", err)
@@ -217,8 +224,8 @@ func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, userOpStr, ent
 	}
 
 	inputs := zkp.AuthProofInput{
-		SkI:          uo.MustParseBigInt(privateKeyStr),
-		EventID:      uo.MustParseBigInt(eventID),
+		SkI:          uo.MustParseBigInt(privateKeyStr, "privateKey in GetSendETHInputs"),
+		EventID:      uo.MustParseBigInt(eventID, "eventID in GetSendETHInputs"),
 		MessageHash:  userOpHashInt,
 		SignatureR8x: R8.X,
 		SignatureR8y: R8.Y,
@@ -333,9 +340,9 @@ type UserOperationResponse struct {
 			Signature                     string `json:"signature"`
 		} `json:"userOperation"`
 		EntryPoint      string `json:"entryPoint"`
-		BlockNumber     string `json:"blockNumber"`
-		BlockHash       string `json:"blockHash"`
-		TransactionHash string `json:"transactionHash"`
+		BlockNumber     string `json:"blockNumber,omitempty"`
+		BlockHash       string `json:"blockHash,omitempty"`
+		TransactionHash string `json:"transactionHash,omitempty"`
 	} `json:"result"`
 }
 
@@ -346,17 +353,80 @@ func (c *EthereumClient) IsUOConfirmed(uoHash string) (bool, error) {
 	}
 	defer client.Close()
 
-	rpcClient := client.Client() // Get the underlying RPC client
-	ctx := context.Background()
-
-	var result UserOperationResponse
-	err = rpcClient.CallContext(ctx, &result, "eth_getUserOperationByHash", uoHash)
-	if err != nil {
-		return false, fmt.Errorf("error getting user operation by hash: %v", err)
+	requestBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "eth_getUserOperationByHash",
+		"params": []interface{}{
+			uoHash,
+		},
 	}
 
-	txHashCommon := common.HexToHash(result.Result.TransactionHash)
-	receipt, err := client.TransactionReceipt(ctx, txHashCommon)
+	// Serialize the request body to JSON
+	requestData, err := json.Marshal(requestBody)
+	if err != nil {
+		return false, fmt.Errorf("error marshaling request body: %v", err)
+	}
+
+	serviceURL := "https://eth-sepolia.g.alchemy.com/v2/-Jm280LvZnniBfiaxZtQa_wL1b_okXCZ"
+	resp, err := http.Post(serviceURL, "application/json", bytes.NewReader(requestData))
+	if err != nil {
+		return false, fmt.Errorf("error sending request to service: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read and parse the response
+	responseData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Errorf("error reading response: %v", err)
+	}
+
+	var response struct {
+		Jsonrpc string `json:"jsonrpc"`
+		Id      int    `json:"id"`
+		Result  struct {
+			UserOperation struct {
+				Sender                        string `json:"sender"`
+				Nonce                         string `json:"nonce"`
+				CallData                      string `json:"callData"`
+				CallGasLimit                  string `json:"callGasLimit"`
+				VerificationGasLimit          string `json:"verificationGasLimit"`
+				PreVerificationGas            string `json:"preVerificationGas"`
+				MaxPriorityFeePerGas          string `json:"maxPriorityFeePerGas"`
+				MaxFeePerGas                  string `json:"maxFeePerGas"`
+				Paymaster                     string `json:"paymaster"`
+				PaymasterVerificationGasLimit string `json:"paymasterVerificationGasLimit"`
+				PaymasterPostOpGasLimit       string `json:"paymasterPostOpGasLimit"`
+				PaymasterData                 string `json:"paymasterData"`
+				Signature                     string `json:"signature"`
+			} `json:"userOperation"`
+			EntryPoint      string `json:"entryPoint"`
+			BlockNumber     string `json:"blockNumber,omitempty"`
+			BlockHash       string `json:"blockHash,omitempty"`
+			TransactionHash string `json:"transactionHash,omitempty"`
+		} `json:"result"`
+		Error *struct {
+			Code    int             `json:"code"`
+			Message string          `json:"message"`
+			Data    json.RawMessage `json:"data,omitempty"`
+		} `json:"error,omitempty"`
+	}
+
+	err = json.Unmarshal(responseData, &response)
+	if err != nil {
+		return false, fmt.Errorf("error unmarshaling response: %v", err)
+	}
+
+	if response.Error != nil {
+		return false, fmt.Errorf("error in response: %v", response.Error.Message)
+	}
+
+	if response.Result.TransactionHash == "" {
+		return false, fmt.Errorf("transaction hash is empty")
+	}
+
+	txHashCommon := common.HexToHash(response.Result.TransactionHash)
+	receipt, err := client.TransactionReceipt(context.Background(), txHashCommon)
 	if err != nil {
 		return false, fmt.Errorf("error getting transaction receipt: %v", err)
 	}

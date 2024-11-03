@@ -94,10 +94,10 @@ func ParseBigInt(input string) (*big.Int, error) {
 	return nil, errors.New("could not parse string as big.Int in decimal or hexadecimal")
 }
 
-func MustParseBigInt(input string) *big.Int {
+func MustParseBigInt(input, context string) *big.Int {
 	secretKey, err := ParseBigInt(input)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("could not parse %s as big.Int in decimal or hexadecimal: %v", context, err))
 	}
 
 	return secretKey
@@ -133,15 +133,20 @@ func encode(userOp *UserOperationJson) ([]byte, error) {
 		{Name: "hashPaymasterAndData", Type: bytes32Type},
 	}
 
+	nonceBig, err := ParseBigInt(nonce)
+	if err != nil {
+		nonceBig = big.NewInt(0)
+	}
+
 	// ABI-encode the data
 	packedData, err := arguments.Pack(
 		common.HexToAddress(userOp.Sender),
-		MustParseBigInt(nonce),
+		nonceBig,
 		common.HexToHash(hashInitCode),
 		common.HexToHash(hashCallData),
-		MustParseBigInt(accountGasLimits),
-		MustParseBigInt(preVerificationGas),
-		MustParseBigInt(gasFees),
+		MustParseBigInt(accountGasLimits, "accountGasLimits in encode"),
+		MustParseBigInt(preVerificationGas, "preVerificationGas in encode"),
+		MustParseBigInt(gasFees, "gasFees in encode"),
 		common.HexToHash(hashPaymasterAndData),
 	)
 	if err != nil {
