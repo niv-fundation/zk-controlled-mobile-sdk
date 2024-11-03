@@ -1,8 +1,12 @@
-package zk_controlled_mobile_sdk
+package zkp
 
 import (
 	"encoding/json"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/niv-fundation/zk-controlled-mobile-sdk/bindings"
+
+	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 )
 
 type Proof struct {
@@ -21,27 +25,27 @@ type ZkProof struct {
 	PubSignals []string `json:"pub_signals"`
 }
 
-func (p *Proof) ToVerifierHelperProofPoints() (*VerifierHelperProofPoints, error) {
-	var vhp VerifierHelperProofPoints
+func (p *Proof) ToVerifierHelperProofPoints() (*bindings.VerifierHelperProofPoints, error) {
+	var vhp bindings.VerifierHelperProofPoints
 
 	for i := 0; i < 2; i++ {
-		vhp.A[i] = MustParseBigInt(p.PiA[i])
+		vhp.A[i] = uo.MustParseBigInt(p.PiA[i])
 	}
 
 	for i := 0; i < 2; i++ {
 		for j := 0; j < 2; j++ {
-			vhp.B[i][j] = MustParseBigInt(p.PiB[i][j])
+			vhp.B[i][j] = uo.MustParseBigInt(p.PiB[i][j])
 		}
 	}
 
 	for i := 0; i < 2; i++ {
-		vhp.C[i] = MustParseBigInt(p.PiC[i])
+		vhp.C[i] = uo.MustParseBigInt(p.PiC[i])
 	}
 
 	return &vhp, nil
 }
 
-func EncodeIdentityProof(proofPoints *VerifierHelperProofPoints) ([]byte, error) {
+func EncodeIdentityProof(proofPoints *bindings.VerifierHelperProofPoints) (string, error) {
 	// Define the ABI of the custom type
 	abiJSON := `[{
        "components": [
@@ -73,7 +77,7 @@ func EncodeIdentityProof(proofPoints *VerifierHelperProofPoints) ([]byte, error)
        "type": "tuple"
      }]`
 
-	identityProof := SmartAccountIdentityProof{
+	identityProof := bindings.SmartAccountIdentityProof{
 		IdentityProof: *proofPoints,
 	}
 
@@ -81,14 +85,14 @@ func EncodeIdentityProof(proofPoints *VerifierHelperProofPoints) ([]byte, error)
 	var arguments abi.Arguments
 	err := json.Unmarshal([]byte(abiJSON), &arguments)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Pack the data
 	data, err := arguments.Pack(identityProof)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return data, nil
+	return hexutil.Encode(data), nil
 }

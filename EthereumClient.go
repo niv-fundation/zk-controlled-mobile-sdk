@@ -5,17 +5,18 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"strings"
-
-	"encoding/hex"
-	"math/big"
+	"github.com/niv-fundation/zk-controlled-mobile-sdk/bindings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/iden3/go-iden3-crypto/poseidon"
+	"github.com/niv-fundation/zk-controlled-mobile-sdk/zkp"
 	"github.com/pkg/errors"
+	"math/big"
+
+	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 )
 
 type TransactionLog struct {
@@ -45,7 +46,7 @@ func (c *EthereumClient) GetEthAddress(privateKeyStr, chainId string) (string, e
 		return "", fmt.Errorf("error parsing private key: %v", err)
 	}
 
-	signerOpts, err := bind.NewKeyedTransactorWithChainID(privateKey, MustParseBigInt(chainId))
+	signerOpts, err := bind.NewKeyedTransactorWithChainID(privateKey, uo.MustParseBigInt(chainId))
 	if err != nil {
 		return "", fmt.Errorf("failed to get keyed transactor: %w", err)
 	}
@@ -62,7 +63,7 @@ func (c *EthereumClient) GetTransactionHistory(contractAddressStr, offset, limit
 
 	contractAddress := common.HexToAddress(contractAddressStr)
 
-	contractCaller, err := NewSmartAccountCaller(contractAddress, client)
+	contractCaller, err := bindings.NewSmartAccountCaller(contractAddress, client)
 	if err != nil {
 		return "", fmt.Errorf("error creating contract caller: %v", err)
 	}
@@ -152,16 +153,55 @@ func (c *EthereumClient) GetContractBalance(addressStr string) (string, error) {
 	return formattedBalance, nil
 }
 
-func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointSrt, paymasterAddressStr string) (string, error) {
+func (c *EthereumClient) GetUO(privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr, paymasterAddressStr string) (string, error) {
 	client, err := ethclient.Dial(c.RPC)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to RPC: %v", err)
 	}
 	defer client.Close()
 
-	userOp, err := BuildSendETHUserOperation(client, privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr, paymasterAddressStr)
+	userOp, err := uo.BuildSendETHUserOperation(client, privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr, paymasterAddressStr)
+	if err != nil {
+		return "", fmt.Errorf("error building user operation: %v", err)
+	}
 
-	userOpHash, err := GetUserOpHash(client, entryPointSrt, userOp)
+	baseFeePerGas, err := GetBaseFee(client)
+	if err != nil {
+		return "", fmt.Errorf("error getting base fee: %v", err)
+	}
+
+	fmt.Println("baseFeePerGas: ", baseFeePerGas)
+
+	gasFeesStr, err := uo.ComputeGasFees(uo.MaxPriorityFeePerGas, baseFeePerGas)
+	if err != nil {
+		return "", fmt.Errorf("error computing gas fees: %v", err)
+	}
+
+	userOp.GasFees = hexutil.Encode(gasFeesStr.Bytes())
+
+	marshaledUo, err := userOp.MarshalJSON()
+	if err != nil {
+		return "", fmt.Errorf("error marshalling user operation to JSON: %v", err)
+	}
+
+	return string(marshaledUo), nil
+}
+
+func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, userOpStr, entryPointSrt string) (string, error) {
+	client, err := ethclient.Dial(c.RPC)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to RPC: %v", err)
+	}
+	defer client.Close()
+
+	userOp, err := uo.UnmarshalUserOperation(userOpStr)
+	if err != nil {
+		return "", fmt.Errorf("error unmarshalling user operation: %v", err)
+	}
+
+	fmt.Println("1 ------ userOp: ", userOp)
+
+	userOpHash, err := uo.GetUserOpHash(client, entryPointSrt, userOp)
 	if err != nil {
 		return "", fmt.Errorf("error getting user op hash: %v", err)
 	}
@@ -173,9 +213,9 @@ func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, receiver, amou
 		return "", fmt.Errorf("error signing user operation: %v", err)
 	}
 
-	inputs := AuthProofInput{
-		SkI:          MustParseBigInt(privateKeyStr),
-		EventID:      MustParseBigInt(eventID),
+	inputs := zkp.AuthProofInput{
+		SkI:          uo.MustParseBigInt(privateKeyStr),
+		EventID:      uo.MustParseBigInt(eventID),
 		MessageHash:  userOpHashInt,
 		SignatureR8x: R8.X,
 		SignatureR8y: R8.Y,
@@ -194,16 +234,35 @@ func (c *EthereumClient) GetSendETHInputs(privateKeyStr, eventID, receiver, amou
 	return string(jsonData), nil
 }
 
-func (c *EthereumClient) SendETH(privateKeyStr, chainId, eventID, receiver, amount, accountAddress, factoryAddressStr, entryPointStr, paymasterAddressStr, proof string) (string, error) {
+func GetBaseFee(client *ethclient.Client) (*big.Int, error) {
+	block, err := client.BlockByNumber(context.Background(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("error getting block by number: %v", err)
+	}
+
+	baseFee := block.BaseFee()
+	if baseFee == nil {
+		return nil, errors.New("base fee is nil")
+	}
+
+	baseFee.Add(baseFee, big.NewInt(1000000000))
+
+	return baseFee, nil
+}
+
+func (c *EthereumClient) SendETH(userOpStr, entryPointStr, paymasterAddressStr, proof string) (string, error) {
 	client, err := ethclient.Dial(c.RPC)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to RPC: %v", err)
 	}
 	defer client.Close()
 
-	userOp, err := BuildSendETHUserOperation(client, privateKeyStr, eventID, receiver, amount, accountAddress, factoryAddressStr, paymasterAddressStr)
+	userOp, err := uo.UnmarshalUserOperation(userOpStr)
+	if err != nil {
+		return "", fmt.Errorf("error unmarshalling user operation: %v", err)
+	}
 
-	proofStruct := &Proof{}
+	proofStruct := &zkp.Proof{}
 	err = proofStruct.FromJSON(proof)
 	if err != nil {
 		return "", fmt.Errorf("error parsing proof: %v", err)
@@ -217,12 +276,12 @@ func (c *EthereumClient) SendETH(privateKeyStr, chainId, eventID, receiver, amou
 	proofPoints.B[0][0], proofPoints.B[0][1] = proofPoints.B[0][1], proofPoints.B[0][0]
 	proofPoints.B[1][0], proofPoints.B[1][1] = proofPoints.B[1][1], proofPoints.B[1][0]
 
-	userOp.Signature, err = EncodeIdentityProof(proofPoints)
+	userOp.Signature, err = zkp.EncodeIdentityProof(proofPoints)
 	if err != nil {
 		return "", fmt.Errorf("error encoding identity proof: %v", err)
 	}
 
-	result, err := SendUOToBundler(userOp, paymasterAddressStr, entryPointStr)
+	result, err := uo.SendUOToBundler(userOp, paymasterAddressStr, entryPointStr)
 	if err != nil {
 		return "", err
 	}
@@ -230,8 +289,63 @@ func (c *EthereumClient) SendETH(privateKeyStr, chainId, eventID, receiver, amou
 	return result, nil
 }
 
+type UserOperationResponse struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      int    `json:"id"`
+	Result  struct {
+		UserOperation struct {
+			Sender                        string `json:"sender"`
+			Nonce                         string `json:"nonce"`
+			CallData                      string `json:"callData"`
+			CallGasLimit                  string `json:"callGasLimit"`
+			VerificationGasLimit          string `json:"verificationGasLimit"`
+			PreVerificationGas            string `json:"preVerificationGas"`
+			MaxPriorityFeePerGas          string `json:"maxPriorityFeePerGas"`
+			MaxFeePerGas                  string `json:"maxFeePerGas"`
+			Paymaster                     string `json:"paymaster"`
+			PaymasterVerificationGasLimit string `json:"paymasterVerificationGasLimit"`
+			PaymasterPostOpGasLimit       string `json:"paymasterPostOpGasLimit"`
+			PaymasterData                 string `json:"paymasterData"`
+			Signature                     string `json:"signature"`
+		} `json:"userOperation"`
+		EntryPoint      string `json:"entryPoint"`
+		BlockNumber     string `json:"blockNumber"`
+		BlockHash       string `json:"blockHash"`
+		TransactionHash string `json:"transactionHash"`
+	} `json:"result"`
+}
+
+func (c *EthereumClient) IsUOConfirmed(uoHash string) (bool, error) {
+	client, err := ethclient.Dial(c.RPC)
+	if err != nil {
+		return false, fmt.Errorf("error connecting to RPC: %v", err)
+	}
+	defer client.Close()
+
+	rpcClient := client.Client() // Get the underlying RPC client
+	ctx := context.Background()
+
+	var result UserOperationResponse
+	err = rpcClient.CallContext(ctx, &result, "eth_getUserOperationByHash", uoHash)
+	if err != nil {
+		return false, fmt.Errorf("error getting user operation by hash: %v", err)
+	}
+
+	txHashCommon := common.HexToHash(result.Result.TransactionHash)
+	receipt, err := client.TransactionReceipt(ctx, txHashCommon)
+	if err != nil {
+		return false, fmt.Errorf("error getting transaction receipt: %v", err)
+	}
+
+	if receipt.BlockNumber != nil {
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func (c *EthereumClient) GetPredictedAccountAddress(privateKey, eventID, factoryAddressStr string) (string, error) {
-	nullifier, err := CalculateEventNullifierHex(privateKey, eventID)
+	nullifier, err := uo.CalculateEventNullifierHex(privateKey, eventID)
 	if err != nil {
 		return "", fmt.Errorf("error calculating event nullifier: %v", err)
 	}
@@ -244,7 +358,7 @@ func (c *EthereumClient) GetPredictedAccountAddress(privateKey, eventID, factory
 
 	factoryAddress := common.HexToAddress(factoryAddressStr)
 
-	factoryCaller, err := NewSmartAccountFactoryCaller(factoryAddress, client)
+	factoryCaller, err := bindings.NewSmartAccountFactoryCaller(factoryAddress, client)
 	if err != nil {
 		return "", fmt.Errorf("error creating factory caller: %v", err)
 	}
@@ -260,7 +374,7 @@ func (c *EthereumClient) GetPredictedAccountAddress(privateKey, eventID, factory
 }
 
 func (c *EthereumClient) GetAccountDeployed(privateKey, eventID, factoryAddressStr string) (string, error) {
-	nullifier, err := CalculateEventNullifierHex(privateKey, eventID)
+	nullifier, err := uo.CalculateEventNullifierHex(privateKey, eventID)
 	if err != nil {
 		return "", fmt.Errorf("error calculating event nullifier: %v", err)
 	}
@@ -273,7 +387,7 @@ func (c *EthereumClient) GetAccountDeployed(privateKey, eventID, factoryAddressS
 
 	factoryAddress := common.HexToAddress(factoryAddressStr)
 
-	factoryCaller, err := NewSmartAccountFactoryCaller(factoryAddress, client)
+	factoryCaller, err := bindings.NewSmartAccountFactoryCaller(factoryAddress, client)
 	if err != nil {
 		return "", fmt.Errorf("error creating factory caller: %v", err)
 	}
@@ -286,72 +400,4 @@ func (c *EthereumClient) GetAccountDeployed(privateKey, eventID, factoryAddressS
 	}
 
 	return address.Hex(), nil
-}
-
-func CalculateEventNullifierHex(privateKey, eventID string) (string, error) {
-	eventNullifier, err := calculateEventNullifier(privateKey, eventID)
-	if err != nil {
-		return "", fmt.Errorf("error calculating event nullifier: %v", err)
-	}
-
-	eventNullifierHex := hex.EncodeToString(eventNullifier.Bytes())
-	if len(eventNullifierHex) < 64 {
-		eventNullifierHex = fmt.Sprintf("%0*s", 64, eventNullifierHex)
-	}
-
-	return fmt.Sprintf("0x%s", eventNullifierHex), nil
-}
-
-func calculateEventNullifier(privateKey, eventID string) (*big.Int, error) {
-	secretKey, err := ParseBigInt(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("err parsing secret key to big int: %v", err)
-	}
-
-	secretKeyHash, err := poseidon.Hash([]*big.Int{secretKey})
-	if err != nil {
-		return nil, fmt.Errorf("err hashing secret key: %v", err)
-	}
-
-	eventIDInt, ok := new(big.Int).SetString(eventID, 0)
-	if !ok {
-		return nil, fmt.Errorf("err parsing event ID: %v", err)
-	}
-
-	eventNullifier, err := poseidon.Hash([]*big.Int{secretKey, secretKeyHash, eventIDInt})
-	if err != nil {
-		return nil, fmt.Errorf("err hashing event: %v", err)
-	}
-
-	return eventNullifier, nil
-}
-
-func ParseBigInt(input string) (*big.Int, error) {
-	secretKey, success := new(big.Int).SetString(input, 10)
-	if success {
-		return secretKey, nil
-	}
-
-	secretKey, success = new(big.Int).SetString(input, 16)
-	if success {
-		return secretKey, nil
-	}
-
-	if strings.HasPrefix(input, "0x") || strings.HasPrefix(input, "0X") {
-		secretKey, success = new(big.Int).SetString(input[2:], 16)
-		if success {
-			return secretKey, nil
-		}
-	}
-
-	return nil, errors.New("could not parse string as big.Int in decimal or hexadecimal")
-}
-
-func MustParseBigInt(input string) *big.Int {
-	secretKey, err := ParseBigInt(input)
-	if err != nil {
-		panic(err)
-	}
-
-	return secretKey
 }

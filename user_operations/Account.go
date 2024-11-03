@@ -1,9 +1,10 @@
-package zk_controlled_mobile_sdk
+package user_operations
 
 import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/niv-fundation/zk-controlled-mobile-sdk/bindings"
 	"math/big"
 )
 
@@ -11,12 +12,12 @@ import (
 type Account struct {
 	Address         common.Address
 	Paymaster       common.Address
-	AccountInstance *SmartAccount
+	AccountInstance *bindings.SmartAccount
 	Client          *ethclient.Client
 }
 
 func NewAccount(address, paymaster common.Address, client *ethclient.Client) *Account {
-	contractInstance, err := NewSmartAccount(address, client)
+	contractInstance, err := bindings.NewSmartAccount(address, client)
 	if err != nil {
 		panic(err)
 	}

@@ -1,8 +1,9 @@
-package zk_controlled_mobile_sdk
+package zkp
 
 import (
 	"encoding/json"
 	"errors"
+	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 	"math/big"
 )
 
@@ -62,32 +63,32 @@ func AuthProofInputFromJSON(data string) (AuthProofInput, error) {
 		return AuthProofInput{}, err
 	}
 
-	skI, err := ParseBigInt(m["sk_i"].(string))
+	skI, err := uo.ParseBigInt(m["sk_i"].(string))
 	if err != nil {
 		return AuthProofInput{}, err
 	}
 
-	eventID, err := ParseBigInt(m["eventID"].(string))
+	eventID, err := uo.ParseBigInt(m["eventID"].(string))
 	if err != nil {
 		return AuthProofInput{}, err
 	}
 
-	messageHash, err := ParseBigInt(m["messageHash"].(string))
+	messageHash, err := uo.ParseBigInt(m["messageHash"].(string))
 	if err != nil {
 		return AuthProofInput{}, err
 	}
 
-	signatureR8x, err := ParseBigInt(m["signatureR8x"].(string))
+	signatureR8x, err := uo.ParseBigInt(m["signatureR8x"].(string))
 	if err != nil {
 		return AuthProofInput{}, err
 	}
 
-	signatureR8y, err := ParseBigInt(m["signatureR8y"].(string))
+	signatureR8y, err := uo.ParseBigInt(m["signatureR8y"].(string))
 	if err != nil {
 		return AuthProofInput{}, err
 	}
 
-	signatureS, err := ParseBigInt(m["signatureS"].(string))
+	signatureS, err := uo.ParseBigInt(m["signatureS"].(string))
 	if err != nil {
 		return AuthProofInput{}, err
 	}
