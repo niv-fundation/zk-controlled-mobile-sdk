@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
-
-	uo "github.com/niv-fundation/zk-controlled-mobile-sdk/user_operations"
 )
 
 type AuthProofInput struct {
@@ -55,51 +53,4 @@ func (i AuthProofInput) ToMap() map[string]interface{} {
 
 func (i AuthProofInput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(i.ToMap())
-}
-
-func AuthProofInputFromJSON(data string) (AuthProofInput, error) {
-	var m map[string]interface{}
-	err := json.Unmarshal([]byte(data), &m)
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	skI, err := uo.ParseBigInt(m["sk_i"].(string))
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	eventID, err := uo.ParseBigInt(m["eventID"].(string))
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	messageHash, err := uo.ParseBigInt(m["messageHash"].(string))
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	signatureR8x, err := uo.ParseBigInt(m["signatureR8x"].(string))
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	signatureR8y, err := uo.ParseBigInt(m["signatureR8y"].(string))
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	signatureS, err := uo.ParseBigInt(m["signatureS"].(string))
-	if err != nil {
-		return AuthProofInput{}, err
-	}
-
-	return AuthProofInput{
-		SkI:          skI,
-		EventID:      eventID,
-		MessageHash:  messageHash,
-		SignatureR8x: signatureR8x,
-		SignatureR8y: signatureR8y,
-		SignatureS:   signatureS,
-	}, nil
 }
